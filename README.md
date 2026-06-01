@@ -59,7 +59,7 @@ mvn clean package
 java -jar target/mlops-api-1.0.0.jar
 ```
 
-Server starts at **http://localhost:8080/api/v1**. Press Ctrl+C to stop.
+Server starts at **http://localhost:8080/api/v1**.
 
 ---
 
@@ -147,47 +147,44 @@ curl -s http://localhost:8080/api/v1/admin/trigger-error
 
 ### Part 1.1 - Role of MessageBodyWriter / JSON Provider
 
-When a JAX-RS method returns a Java object, the framework needs something to convert it into a format the client can actually receive. This is handled by the `MessageBodyWriter` interface, which is responsible for serialising a Java object into bytes that get written to the HTTP response body.
+When a JAX-RS method returns a Java object, the framework must convert it into a format that the client can handle. This task falls to the `MessageBodyWriter` interface, which changes a Java object into bytes for the HTTP response body.
 
-When Jackson is added and registered using `JacksonFeature`, it registers a `JacksonJsonProvider` class that implements `MessageBodyWriter`. It uses Jackson's `ObjectMapper` under the hood to go through each field in the object and convert it to its JSON equivalent. For example, a String becomes a JSON string, a List becomes a JSON array and so on. It also sets the `Content-Type: application/json` header on the response automatically.
+When you add and register Jackson using `JacksonFeature`, it also includes the `JacksonJsonProvider` class that implements `MessageBodyWriter`. This provider uses Jackson's `ObjectMapper` to process each field in the object and convert it to JSON format. For example, a String becomes a JSON string, and a List turns into a JSON array. It also automatically sets the `Content-Type: application/json` header on the response.
 
-Without this provider being registered, JAX-RS would have no way of converting a POJO to JSON and would throw an error saying no writer was found for that type.
+If this provider is not registered, JAX-RS cannot convert a POJO to JSON. It will throw an error saying that no writer was found for that type.
 
 ---
 
 ### Part 1.2 - Statelessness and Horizontal Scaling
 
-Statelessness in REST means the server does not store any information about the client between requests. Every request has to be self-contained and include all the information the server needs, such as authentication tokens or query parameters. The server doesn't keep track of who called it last or what they were doing.
+Statelessness in REST means that the server doesn't keep any information about the client between requests. Each request must be independent and include all the details the server needs, such as authentication tokens or query parameters. The server doesn't remember who contacted it last or what they were doing.
 
-This is really useful for scaling horizontally because if no session data is stored on any individual server, a load balancer can send each request to any server in the cluster without worrying about it. If you have 10 servers and one goes down, the others can handle the remaining traffic without any issue because they were never holding any client state to begin with. Adding more servers is straightforward too since you don't need to sync session data across machines. In contrast, a stateful API would need sticky sessions, where each client is locked to a specific server, which makes scaling much harder.
+This setup is very helpful for scaling horizontally. Since no session data is stored on any single server, a load balancer can direct each request to any server in the cluster without any concerns. If you have 10 servers and one fails, the others can handle the remaining traffic smoothly because they never held any client state. It's also easy to add more servers since you don’t have to synchronize session data across machines. 
 
 ---
 
 ### Part 2.1 - HTTP Cache-Control Headers
 
-Adding `Cache-Control: max-age=60` to the GET /workspaces response would mean that clients and any intermediate proxies can store the response for 60 seconds. During that time, repeated requests would be served from cache rather than hitting the server, which reduces unnecessary load and speeds up response times for the client.
+Adding `Cache-Control: max-age=60` to the GET /workspaces response allows clients and any middle proxies to store the response for 60 seconds. During this period, repeated requests come from the cache instead of reaching the server. This cuts down on the load and speeds up response times for the client.
 
-For individual workspace lookups, you could use an `ETag` header alongside `Cache-Control: no-cache`. The client would then send an `If-None-Match` header on follow-up requests, and if nothing has changed the server returns a `304 Not Modified` with no body at all. This is more efficient than sending the full JSON every time when the data hasn't actually changed.
-
+For individual workspace lookups, you can use an `ETag` header with `Cache-Control: no-cache`. The client will send an `If-None-Match` header with follow-up requests. If there are no changes, the server responds with a `304 Not Modified` status and no content. This approach is more efficient than sending the complete JSON every time when the data hasn’t changed.
 ---
 
 ### Part 2.2 - HEAD Instead of GET for Existence Checks
 
-The client should use the `HEAD` method. HEAD works the same as GET in terms of what the server does, it performs the lookup and returns the same status code, but it doesn't include a response body. So if a workspace exists you get a 200 with just headers, and if it doesn't you get a 404, all without downloading the actual JSON.
+The client should use the `HEAD` method. HEAD works like GET in terms of what the server does. It checks for the resource and returns the same status code, but it does not include a response body. If a workspace exists, you will receive a 200 status with only headers. If it does not exist, you will get a 404, all without downloading the actual JSON.
 
-This is useful when you only want to check if something exists without wasting bandwidth downloading data you don't need. It's safe and idempotent so there are no side effects. This is why I implemented a `HEAD /workspaces/{workspaceId}` endpoint alongside the GET one in `WorkspaceResource`.
+This is useful when you want to check if something exists without wasting bandwidth on unnecessary data. It is safe and idempotent, meaning there are no side effects. That’s why I added a `HEAD /workspaces/{workspaceId}` endpoint along with the GET one in `WorkspaceResource`.
 
 ---
 
 ### Part 3.1 - Server-Side ID Generation
 
-Letting the server generate the ID using `UUID.randomUUID()` rather than accepting one from the client is better for a few reasons.
+Letting the server create the ID with `UUID.randomUUID()` instead of allowing the client to provide one offers several benefits.
 
-From a security perspective, if a client could supply their own ID they could overwrite an existing resource by sending the same ID, or try to guess valid IDs to access data they shouldn't. With UUIDs generated server-side, IDs are unpredictable and unique so neither of those attacks work.
+From a security standpoint, if a client could input their own ID, they might overwrite an existing resource by using the same ID. They could also try to guess valid IDs to access restricted data. When UUIDs are generated on the server, these IDs are unpredictable and unique, which helps prevent such attacks.
 
-For data integrity, generating IDs server-side guarantees they will always be unique. Two clients making requests at the same time can't end up with the same ID, which would happen if clients were picking IDs themselves without any coordination.
-
-Regarding Bean Validation vs manual checks: Jakarta Bean Validation (JSR 380) lets you add constraints directly to POJO fields with annotations like `@NotNull` or `@Size`, and when `@Valid` is used on a method parameter Jersey will validate them automatically. This works well for simple things like checking a field isn't null or checking a string length. However it can't handle relational checks, like verifying a `workspaceId` actually exists in the data store, because that requires querying the data store which annotations can't do. For that reason I used a manual if-check in `ModelResource` and threw a `LinkedWorkspaceNotFoundException` when the workspace wasn't found, which then gets handled by a dedicated exception mapper returning a 422.
+For data integrity, generating IDs on the server ensures they are always unique. If two clients make requests at the same time, they will not receive the same ID. This problem could happen if clients chose IDs themselves without coordination.
 
 ---
 
@@ -201,35 +198,34 @@ The client would need to encode the value like this:
 
 Spaces become `%20` and the `&` character becomes `%26`.
 
-This is necessary because URLs have reserved characters that mean specific things in the structure of the URL. The `&` symbol is used to separate query parameters, so if it appears inside a parameter value without encoding, the server would think the URL contains multiple parameters and parse it incorrectly. Spaces aren't valid in URLs at all. By percent-encoding these characters, the client ensures the value is transmitted as a single unambiguous string. JAX-RS automatically decodes it on the server side, so `@QueryParam` gets the original clean value without the encoding.
-
+This is necessary because URLs have reserved characters that indicate specific functions in their structure. The `&` symbol separates query parameters, so if it appears inside a parameter value without encoding, the server may interpret the URL as containing multiple parameters and parse it incorrectly. Spaces are not valid in URLs. By percent-encoding these characters, the client ensures the value is sent as a single, clear string. JAX-RS automatically decodes it on the server side, so `@QueryParam` receives the original clean value without the encoding.
 ---
 
 ### Part 4.1 - Class-Level vs Method-Level @Produces
 
-Putting `@Produces(MediaType.APPLICATION_JSON)` at the class level means it applies to every method in that class by default, so you don't have to repeat it on every single method. It keeps things cleaner and means if you ever need to change the media type you only have to change it in one place.
+Putting `@Produces(MediaType.APPLICATION_JSON)` at the class level means it applies to every method in that class by default. This way, you do not have to repeat it for each method. It keeps things cleaner and allows you to change the media type in one place if needed.
 
-Method-level annotations override the class-level one for that specific method. If a method has its own `@Produces`, JAX-RS uses that and ignores the class-level annotation entirely for that method. For example if most methods produce JSON but one needs to return plain text, you'd just annotate that one method with `@Produces("text/plain")` and everything else would still use the class-level JSON default. There's no merging, the method-level annotation fully replaces the class one for that endpoint.
+Method-level annotations override the class-level annotation for specific methods. If a method has its own `@Produces`, JAX-RS uses that and ignores the class-level annotation for that method. For example, if most methods produce JSON but one needs to return plain text, you would just annotate that method with `@Produces("text/plain")`. Everything else would still use the class-level JSON default. There is no merging; the method-level annotation completely replaces the class one for that endpoint.
 
 ---
 
 ### Part 5.2 - Why Validation Failures Should Be 4xx Not 5xx
 
-The 4xx range means the problem was caused by the client. The 5xx range means something went wrong on the server side. When a client sends a `workspaceId` that doesn't exist, the server has done everything right and the API is working correctly. The request itself is the problem because the client provided invalid data. Returning a 5xx would incorrectly suggest the server had an internal error or crashed, which isn't true.
+The 4xx range shows that the problem came from the client. The 5xx range indicates there was an issue on the server side. When a client sends a `workspaceId` that doesn't exist, the server has acted correctly, and the API is working as it should. The problem lies with the request because the client supplied invalid data. Returning a 5xx status would falsely suggest that the server encountered an internal error or crashed, which isn’t true.
 
-Using 422 Unprocessable Entity makes sense here because the JSON was valid and the request was understood, but the content couldn't be processed because it references something that doesn't exist. It tells the client they need to fix their request, not retry it or report a server issue.
+Using 422 Unprocessable Entity is fitting in this case because the JSON was valid, and the request was understood, but the content could not be processed since it refers to something that doesn’t exist. It lets the client know they need to correct their request instead of retrying it or reporting a server issue.
 
 ---
 
 ### Part 5.4 - How JAX-RS Picks the Right Exception Mapper
 
-JAX-RS looks for the most specific mapper available for the exception that was thrown. It goes up the class hierarchy of the exception and picks the mapper registered for the closest matching type.
+JAX-RS looks for the most specific mapper for the thrown exception. It checks the class hierarchy of the exception and selects the registered mapper for the closest matching type.
 
-So if `WorkspaceNotEmptyException` is thrown, JAX-RS finds the `WorkspaceNotEmptyExceptionMapper` straight away and uses it. The `GlobalExceptionMapper<Throwable>` is never involved.
+If `WorkspaceNotEmptyException` is thrown, JAX-RS finds and uses the `WorkspaceNotEmptyExceptionMapper`. The `GlobalExceptionMapper<Throwable>` is not involved.
 
-If something unexpected like a `NullPointerException` is thrown and there's no specific mapper for it, JAX-RS works up the hierarchy through `RuntimeException` and `Exception` until it gets to `Throwable`, where it finds the global mapper and uses that. This means specific mappers always win and the global one is only a fallback for anything that isn't handled elsewhere.
+If an unexpected exception, like `NullPointerException`, is thrown and there is no specific mapper for it, JAX-RS goes up the hierarchy through `RuntimeException` and `Exception` until it reaches `Throwable`. There, it finds the global mapper and uses that. 
 
-In my `GlobalExceptionMapper` I also check for `WebApplicationException` and pass those through directly so Jersey's own built-in error responses aren't broken by the catch-all.
+In my `GlobalExceptionMapper`, I also check for `WebApplicationException` and pass those through directly. 
 
 ---
 
@@ -237,6 +233,6 @@ In my `GlobalExceptionMapper` I also check for `WebApplicationException` and pas
 
 Two useful pieces of metadata from the filter contexts:
 
-1. The request URI from `requestContext.getUriInfo().getRequestUri()` combined with `requestContext.getMethod()` gives you the exact endpoint that was called including any query parameters. This is the most important thing to log because when something goes wrong you can immediately see what was called and reproduce it.
+1. The request URI from `requestContext.getUriInfo().getRequestUri()` combined with `requestContext.getMethod()` gives you the exact endpoint that was called, including any query parameters. This is the most important detail to log. When something goes wrong, you can quickly see what was called and reproduce the issue.
 
-2. The response status code from `responseContext.getStatus()` tells you straight away whether the request succeeded or failed and what kind of failure it was. Combined with the `Authorization` header from the request, you can see who made the call and what happened, which is useful for tracking down access control issues or failed requests from specific clients.
+2. The response status code from `responseContext.getStatus()` immediately shows whether the request succeeded or failed and the nature of the failure. When you pair this with the `Authorization` header from the request, you can identify who made the call and what happened. This helps in tracking down access control issues or failed requests from specific clients.
