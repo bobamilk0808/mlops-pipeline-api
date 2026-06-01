@@ -168,6 +168,7 @@ This setup is very helpful for scaling horizontally. Since no session data is st
 Adding `Cache-Control: max-age=60` to the GET /workspaces response allows clients and any middle proxies to store the response for 60 seconds. During this period, repeated requests come from the cache instead of reaching the server. This cuts down on the load and speeds up response times for the client.
 
 For individual workspace lookups, you can use an `ETag` header with `Cache-Control: no-cache`. The client will send an `If-None-Match` header with follow-up requests. If there are no changes, the server responds with a `304 Not Modified` status and no content. This approach is more efficient than sending the complete JSON every time when the data hasn’t changed.
+
 ---
 
 ### Part 2.2 - HEAD Instead of GET for Existence Checks
@@ -193,12 +194,16 @@ For data integrity, generating IDs on the server ensures they are always unique.
 The client would need to encode the value like this:
 
 ```
+
 ?framework=Scikit%20Learn%20%26%20Tools
+
 ```
+
 
 Spaces become `%20` and the `&` character becomes `%26`.
 
 This is necessary because URLs have reserved characters that indicate specific functions in their structure. The `&` symbol separates query parameters, so if it appears inside a parameter value without encoding, the server may interpret the URL as containing multiple parameters and parse it incorrectly. Spaces are not valid in URLs. By percent-encoding these characters, the client ensures the value is sent as a single, clear string. JAX-RS automatically decodes it on the server side, so `@QueryParam` receives the original clean value without the encoding.
+
 ---
 
 ### Part 4.1 - Class-Level vs Method-Level @Produces
