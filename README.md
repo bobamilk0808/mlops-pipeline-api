@@ -147,7 +147,7 @@ curl -s http://localhost:8080/api/v1/admin/trigger-error
 
 ### Part 1.1 - Role of MessageBodyWriter / JSON Provider
 
-When a JAX-RS method returns a Java object, the framework must convert it into a format that the client can handle. This task falls to the `MessageBodyWriter` interface, which changes a Java object into bytes for the HTTP response body.
+When a JAX-RS method returns a Java object, the framework must convert it into a format that the client can handle. That's what MessageBodyWriter is for - `MessageBodyWriter` interface, which changes a Java object into bytes for the HTTP response body.
 
 When you add and register Jackson using `JacksonFeature`, it also includes the `JacksonJsonProvider` class that implements `MessageBodyWriter`. This provider uses Jackson's `ObjectMapper` to process each field in the object and convert it to JSON format. For example, a String becomes a JSON string, and a List turns into a JSON array. It also automatically sets the `Content-Type: application/json` header on the response.
 
@@ -183,7 +183,7 @@ This is useful when you want to check if something exists without wasting bandwi
 
 Letting the server create the ID with `UUID.randomUUID()` instead of allowing the client to provide one offers several benefits.
 
-From a security standpoint, if a client could input their own ID, they might overwrite an existing resource by using the same ID. They could also try to guess valid IDs to access restricted data. When UUIDs are generated on the server, these IDs are unpredictable and unique, which helps prevent such attacks.
+If a client could input their own ID, they might overwrite an existing resource by using the same ID. They could also try to guess valid IDs to access restricted data. When UUIDs are generated on the server, these IDs are unpredictable and unique, which helps prevent such attacks.
 
 For data integrity, generating IDs on the server ensures they are always unique. If two clients make requests at the same time, they will not receive the same ID. This problem could happen if clients chose IDs themselves without coordination.
 
@@ -218,7 +218,7 @@ Method-level annotations override the class-level annotation for specific method
 
 The 4xx range shows that the problem came from the client. The 5xx range indicates there was an issue on the server side. When a client sends a `workspaceId` that doesn't exist, the server has acted correctly, and the API is working as it should. The problem lies with the request because the client supplied invalid data. Returning a 5xx status would falsely suggest that the server encountered an internal error or crashed, which isn’t true.
 
-Using 422 Unprocessable Entity is fitting in this case because the JSON was valid, and the request was understood, but the content could not be processed since it refers to something that doesn’t exist. It lets the client know they need to correct their request instead of retrying it or reporting a server issue.
+422 makes more sense here because the JSON was valid, and the request was understood, but the content could not be processed since it refers to something that doesn’t exist. It lets the client know they need to correct their request instead of retrying it or reporting a server issue.
 
 ---
 
