@@ -147,7 +147,7 @@ curl -s http://localhost:8080/api/v1/admin/trigger-error
 
 ### Part 1.1 - Role of MessageBodyWriter / JSON Provider
 
-When a JAX-RS method returns a Java object, the framework must convert it into a format that the client can handle. That's what MessageBodyWriter is for - `MessageBodyWriter` interface, which changes a Java object into bytes for the HTTP response body.
+When a JAX-RS method returns a Java object, the framework must convert it into a format that the client can handle. That's what the MessageBodyWriter interface is for — it converts a Java object into bytes for the HTTP response body.
 
 When you add and register Jackson using `JacksonFeature`, it also includes the `JacksonJsonProvider` class that implements `MessageBodyWriter`. This provider uses Jackson's `ObjectMapper` to process each field in the object and convert it to JSON format. For example, a String becomes a JSON string, and a List turns into a JSON array. It also automatically sets the `Content-Type: application/json` header on the response.
 
